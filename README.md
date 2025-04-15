@@ -124,4 +124,4 @@ files_to_xml file1.txt file2.txt | process_xml
 
 ## License
 
-[MIT License](LICENSE) (or specify your preferred license)
+[GPL-3 License](LICENSE)
