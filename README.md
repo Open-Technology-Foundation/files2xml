@@ -7,12 +7,12 @@ Convert files to XML representation with metadata and content.
 `files2xml` is a Bash utility that creates an XML representation of files, including metadata and content. It's designed for archiving, documentation, or data transfer where a self-contained XML format is useful.
 
 Features:
-- Handles both text and binary files
-- Text files are embedded as CDATA sections
+- Automatically detects binary vs text files using MIME encoding
+- Text files are embedded as CDATA sections with proper escaping
 - Binary files are base64-encoded
 - Includes file metadata (name, type, size, modification time)
 - Outputs to stdout for flexible pipeline usage
-- Proper XML escaping for special characters
+- Full XML escaping for paths and filenames
 
 ## Installation
 
@@ -37,9 +37,9 @@ files2xml [OPTIONS] FILE [FILE ...]
 - `FILE` - One or more files to include in the XML
 
 ### Options
-- `-m, --max-file-size SIZE` - Set maximum file size (default: 1GB)
-- `-v, --verbose` - Increase verbosity
-- `-q, --quiet` - Suppress all messages
+- `-m, --max-file-size SIZE` - Set maximum file size (default: 1GB). Supports suffixes like K, M, G.
+- `-v, --verbose` - Increase verbosity (can be used multiple times)
+- `-q, --quiet` - Suppress all messages (overrides -v)
 - `-V, --version` - Show version information
 - `-h, --help` - Show help message
 
@@ -52,12 +52,12 @@ files2xml file1.txt file2.pdf > files.xml
 
 Process multiple files with find:
 ```bash
-files2xml $(find . -name "*.py") > output.xml
+find . -type f -name "*.py" -exec files2xml {} + > output.xml
 ```
 
 Use with xargs for many files:
 ```bash
-find . -name "*.log" | xargs files2xml > logs.xml
+find . -type f -name "*.log" -print0 | xargs -0 files2xml > logs.xml
 ```
 
 Process and compress output:
@@ -65,14 +65,9 @@ Process and compress output:
 files2xml config.json README.md | gzip > backup.xml.gz
 ```
 
-Use with grep to filter XML:
+Use with XML tools like xmlstarlet:
 ```bash
-files2xml *.conf | grep -A10 "<file>" | less
-```
-
-Extract just the filenames:
-```bash
-files2xml -q *.py | grep -oP '<n>\K[^<]+'
+files2xml -q *.sh | xmlstarlet sel -t -v "//file[type='text/x-shellscript']/name"
 ```
 
 ## XML Format
@@ -101,13 +96,14 @@ The script generates XML with the following structure:
 </Files>
 ```
 
-## Notes
+## Implementation Details
 
-- Files larger than 1GB are skipped by default
-- Common text extensions (.md, .txt, etc.) are forced to be treated as text files
-- Symlinks are resolved to their target files
-- Outputs to stdout for pipeline usage
-- Use redirection (>) to save to a file
+- **Text vs Binary detection**: Uses `file --mime-encoding` to accurately determine if a file should be treated as text or binary
+- **Error handling**: Provides detailed error messages and continues processing when individual files fail
+- **XML escaping**: All file paths and names are properly escaped to ensure valid XML
+- **Size limiting**: Files exceeding the maximum size limit are skipped with appropriate messaging
+- **Symlink resolution**: Symlinks are resolved to their actual target files
+- **CDATA escaping**: Properly handles CDATA end sequences (`]]>`) in text files
 
 ## Use in Scripts
 
@@ -120,7 +116,7 @@ files_to_xml file1.txt file2.txt | process_xml
 ## Requirements
 
 - Bash 4.0+
-- Standard Unix utilities: basename, file, stat, date, sed, base64, readlink, numfmt
+- Standard Unix utilities: basename, file, stat, date, sed, base64, readlink, numfmt, getopt
 
 ## License
 
