@@ -1,0 +1,238 @@
+#!/bin/bash
+#
+# files2xml - Convert files to XML representation with metadata
+#
+# Converts files into structured XML with metadata and content.
+# - Text files: Content in CDATA sections
+# - Binary files: Content base64-encoded
+# - Outputs to stdout for flexible pipeline usage
+#
+# Author: Gary Dean
+# Updated: April 2025
+#
+
+set -eEuo pipefail
+
+# Configuration
+# -------------
+# Maximum file size in bytes (1GB)
+declare -r MAX_FILE_SIZE=$((1024*1024*1024))
+# XML version and encoding
+declare -r XML_VERSION='1.0'
+declare -r XML_ENCODING='UTF-8'
+
+declare -i VERBOSE=0
+
+# Check required commands
+# Returns: 0=success, 1=missing command
+check_commands() {
+  declare -a cmds=(basename file stat date sed base64 readlink numfmt)
+  for cmd in "${cmds[@]}"; do
+    command -v "$cmd" &>/dev/null || { error "Required command not found: $cmd"; return 1; }
+  done
+  return 0
+}
+
+# Convert files to XML format
+# 
+# Args: $1+ - Input files to process
+# Returns: 0=success, 1=failure
+# Outputs: XML to stdout, messages to stderr
+files_to_xml() {
+  # Validate arguments
+  (($# < 1)) && { error "$FUNCNAME: Too few parameters. Need at least one input file"; return 1; }
+
+  # Check for required commands
+  check_commands || { error "$FUNCNAME: Missing required commands"; return 1; }
+
+  # Initialize variables
+  declare file
+  declare -i size
+  declare name type modified content escaped_file escaped_name
+  
+  # Create XML file with header
+  echo "<?xml version=\"$XML_VERSION\" encoding=\"$XML_ENCODING\"?>"
+  echo '<Files>'
+
+  # Track total number of files for progress
+  declare -i total_files=$#
+  declare -i current_file=0
+  
+  for file in "$@"; do
+    # get fqfn
+    file=$(readlink -f "$file") || { error "$FUNCNAME: Failed to resolve symlink '$file'"; continue; }
+    
+    # Check file type and readability
+    [[ -f "$file" && -r "$file" ]] || { error "$FUNCNAME: File '$file' not found or not readable"; continue; }
+
+    # Show progress
+    current_file=$((current_file+1))
+    ((VERBOSE)) && error "Processing file $current_file of $total_files: $file"
+    
+    name=$(basename "$file") || { error "$FUNCNAME: Failed to get basename for '$file'"; continue; }
+    
+    # Get MIME type
+    type=$(file --mime-type -b "$file") || { error "$FUNCNAME: Failed to get file type for '$file'"; continue; }
+    
+    # Check file extension for common text types that might be misidentified
+    if [[ "${file,,}" =~ \.(md|txt|csv|json|xml|yml|yaml|ini|conf|cfg|properties)$ ]]; then
+      ((VERBOSE)) && error "Forcing text type for known extension: ${file##*.}"
+      type="text/plain"
+    fi
+    
+    size=$(stat -c %s "$file") || { error "$FUNCNAME: Failed to get file size for '$file'"; continue; }
+    
+    # Check file size
+    if ((size > MAX_FILE_SIZE)); then
+      error "$FUNCNAME: File '$file' too large ($(numfmt --to=iec-i --suffix=B $size)), skipping"
+      continue
+    fi
+    
+    modified=$(date -d @"$(stat -c %Y "$file")" +"%Y-%m-%dT%H:%M:%S") || { error "$FUNCNAME: Failed to get modified time for '$file'"; continue; }
+    
+    # Escape XML special characters in paths and names
+    escaped_file="${file//&/&amp;}"
+    escaped_file="${escaped_file//</&lt;}"
+    escaped_file="${escaped_file//>/&gt;}"
+    escaped_file="${escaped_file//\"/&quot;}"
+    
+    escaped_name="${name//&/&amp;}"
+    escaped_name="${escaped_name//</&lt;}"
+    escaped_name="${escaped_name//>/&gt;}"
+    escaped_name="${escaped_name//\"/&quot;}"
+
+    # Print actual file type for debugging
+    ((VERBOSE)) && error "$FUNCNAME: File type detection: $name => $type"
+
+    if [[ "$type" == text/* || "${file,,}" =~ \.(md|txt|csv|json|xml|yml|yaml|ini|conf|cfg|properties)$ ]]; then
+      # Escape CDATA end sequence if present
+      content=$(sed 's/]]>/]]]]><![CDATA[>/' "$file") || { error "$FUNCNAME: Failed to process content for '$file'"; continue; }
+      echo "  <file>"
+      echo "    <fqfn>$escaped_file</fqfn>"
+      echo "    <name>$escaped_name</name>"
+      echo "    <type>$type</type>"
+      echo "    <size>$size</size>"
+      echo "    <modified>$modified</modified>"
+      echo "    <content><![CDATA[$content]]></content>"
+      echo "  </file>"
+    else
+      # Encode binary content as base64
+      content=$(base64 -w 0 "$file") || { error "$FUNCNAME: Failed to base64 encode '$file'"; continue; }
+      echo "  <file>"
+      echo "    <fqfn>$escaped_file</fqfn>"
+      echo "    <name>$escaped_name</name>"
+      echo "    <type>$type</type>"
+      echo "    <size>$size</size>"
+      echo "    <modified>$modified</modified>"
+      echo "    <content encoding=\"base64\">$content</content>"
+      echo "  </file>"
+    fi
+  done
+
+  echo '</Files>'
+}
+
+
+error() {
+  >&2 echo -e "files2xml: $1"
+}
+
+# Trap for error reporting with line numbers
+trap 'echo "Error at line $LINENO: Command \"$BASH_COMMAND\" failed with status $?"' ERR
+
+# Execute script if run directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  # Display usage information
+  usage() {
+    cat <<EOF
+files2xml - Convert files to XML with metadata and content
+
+Usage: ${0##*/} [OPTIONS] FILE [FILE ...]
+
+Arguments:
+  FILE                One or more files to include in the XML
+
+Options:
+  -m, --max-file-size SIZE  Set maximum file size (default: 1GB)
+  -v, --verbose       Increase verbosity
+  -q, --quiet         Suppress all messages
+  -V, --version       Show version information
+  -h, --help          Show this help message
+
+Examples:
+  # Basic usage with output redirection
+  ${0##*/} file1.txt file2.pdf >files.xml
+  
+  # Process multiple files with find
+  ${0##*/} $(find . -name "*.py") >output.xml
+  
+  # Use with xargs for many files
+  find . -name "*.log" | xargs ${0##*/} >logs.xml
+  
+  # Process and compress output
+  ${0##*/} config.json README.md | gzip >backup.xml.gz
+  
+  # Use with grep to filter XML
+  ${0##*/} *.conf | grep -A10 "<file>" | less
+  
+  # Extract just the filenames
+  ${0##*/} -q *.py | grep -oP '<n>\K[^<]+'
+
+Notes:
+  - Text files: Content in CDATA sections
+  - Binary files: Content base64-encoded
+  - Files >1GB skipped by default
+  - Common text extensions (.md, .txt, etc.) forced as text
+  - Outputs to stdout for pipeline usage
+  - Use redirection (>) to save to file
+
+If sourced in another script:
+  source ${0##*/}
+  files_to_xml file1.txt file2.txt | process_xml
+EOF
+    exit "${1:-0}"
+  }
+
+  # Main script entry point
+  main() {
+    # Script version
+    declare VERSION="1.1.0"
+    declare PRG="${0##*/}"
+    
+    # Parse args
+    declare -a aFiles=()
+    # shellcheck disable=SC2206
+    while (($#)); do case $1 in
+      -m|--max-file-size)
+                        shift
+                        MAX_FILE_SIZE="$1"
+                        ;;
+      -v|--verbose)     VERBOSE+=1 ;;
+      -q|--quiet)       VERBOSE=0 ;;
+      -V|--version)     echo "$PRG v${VERSION}"; exit 0 ;;
+      -h|--help)        usage 0 ;;
+      -[mvqVh]*) #shellcheck disable=SC2046 # expand aggregated short options
+                        set -- '' $(printf -- "-%c " $(grep -o . <<<"${1:1}")) "${@:2}" ;;
+      --)               shift; aFiles+=( $@ ); break ;;
+      -*)               error "Bad argument '$1'"; exit 22 ;;
+      *)                aFiles+=( "$1" ) ;;
+    esac; shift; done
+
+    # Validate args
+    ((VERBOSE > 1)) && declare -p aFiles
+    
+    # Check for files
+    ((${#aFiles[@]} < 1)) && { error "Error: No files specified"; usage 1; }
+    
+    # Process files
+    files_to_xml "${aFiles[@]}"
+    
+    # Summary
+    ((VERBOSE)) && error "Added ${#aFiles[@]} files to XML document"
+  }
+
+  # Call main with all arguments
+  main "$@"
+fi
+
+#fin
