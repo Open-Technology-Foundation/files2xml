@@ -11,6 +11,8 @@ Features:
 - Text files are embedded as CDATA sections with proper escaping
 - Binary files are base64-encoded
 - Includes file metadata (name, type, size, modification time)
+- Git repository integration to process tracked files
+- Custom file ignore patterns
 - Outputs to stdout for flexible pipeline usage
 - Full XML escaping for paths and filenames
 
@@ -30,16 +32,20 @@ sudo cp files2xml /usr/local/bin/
 ## Usage
 
 ```
-files2xml [OPTIONS] FILE [FILE ...]
+files2xml [OPTIONS] [FILE ...]
 ```
 
 ### Arguments
-- `FILE` - One or more files to include in the XML
+- `FILE` - One or more files to include in the XML (optional if --gitdir is used)
 
 ### Options
-- `-m, --max-file-size SIZE` - Set maximum file size (default: 1GB). Supports suffixes like K, M, G.
-- `-v, --verbose` - Increase verbosity (can be used multiple times)
-- `-q, --quiet` - Suppress all messages (overrides -v)
+- `-m, --max-file-size SIZE` - Set maximum file size (default: 1GB)
+- `-g, --gitdir DIR` - Include files from git repository (can be used multiple times)
+- `-i, --ignore PATTERN` - Add glob pattern to ignore list (can be used multiple times)
+  - Default patterns: `'*.mp*' '~*' '*~' '*.bak' '*.log' '*.old' '*LI*'`
+  - Use `-i ""` to clear the default patterns
+- `-v, --verbose` - Increase verbosity
+- `-q, --quiet` - Suppress all messages
 - `-V, --version` - Show version information
 - `-h, --help` - Show help message
 
@@ -50,24 +56,34 @@ Basic usage with output redirection:
 files2xml file1.txt file2.pdf > files.xml
 ```
 
+Include git repository files:
+```bash
+files2xml --gitdir /path/to/repo > repo_files.xml
+```
+
+Combine multiple git repositories and regular files:
+```bash
+files2xml --gitdir /path/to/repo1 --gitdir /path/to/repo2 additional_file.txt > combined.xml
+```
+
+Specify custom ignore patterns (adds to default patterns):
+```bash
+files2xml --ignore "*.tmp" --ignore "*.cache" dir/*.py > files.xml
+```
+
+Clear default ignore patterns and set custom ones:
+```bash
+files2xml --ignore "" --ignore "*.tmp" --gitdir /path/to/repo > files.xml
+```
+
 Process multiple files with find:
 ```bash
 find . -type f -name "*.py" -exec files2xml {} + > output.xml
 ```
 
-Use with xargs for many files:
-```bash
-find . -type f -name "*.log" -print0 | xargs -0 files2xml > logs.xml
-```
-
-Process and compress output:
-```bash
-files2xml config.json README.md | gzip > backup.xml.gz
-```
-
 Use with XML tools like xmlstarlet:
 ```bash
-files2xml -q *.sh | xmlstarlet sel -t -v "//file[type='text/x-shellscript']/name"
+files2xml *.sh | xmlstarlet sel -t -v "//file[type='text/x-shellscript']/n"
 ```
 
 ## XML Format
@@ -98,7 +114,9 @@ The script generates XML with the following structure:
 
 ## Implementation Details
 
-- **Text vs Binary detection**: Uses `file --mime-encoding` to accurately determine if a file should be treated as text or binary
+- **Text vs Binary detection**: Uses `file --mime-encoding` to determine if a file should be treated as text or binary
+- **Git integration**: Can process files tracked in git repositories using `git ls-files`
+- **Custom ignore patterns**: Supports glob patterns to exclude files
 - **Error handling**: Provides detailed error messages and continues processing when individual files fail
 - **XML escaping**: All file paths and names are properly escaped to ensure valid XML
 - **Size limiting**: Files exceeding the maximum size limit are skipped with appropriate messaging
@@ -116,6 +134,7 @@ files_to_xml file1.txt file2.txt | process_xml
 ## Requirements
 
 - Bash 4.0+
+- Git (for --gitdir functionality)
 - Standard Unix utilities: basename, file, stat, date, sed, base64, readlink, numfmt, getopt
 
 ## License
