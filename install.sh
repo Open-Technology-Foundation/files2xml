@@ -189,6 +189,7 @@ fi
 
 # Install files2xml
 echo -e "${BLUE}Installing files2xml system-wide...${NC}"
+rm -f "$INSTALL_PATH"
 install -v -m 755 files2xml "$INSTALL_PATH"
 
 # Install man page if it exists
