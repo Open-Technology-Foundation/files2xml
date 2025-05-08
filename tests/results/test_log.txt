@@ -1,0 +1,140 @@
+[1;33mRunning test: test_01_basic_functionality[0m
+----------------------------------------
+Testing basic functionality...
+
+✓ PASS: files2xml should exit with status 0 (Expected: 0, Actual: 0)
+✓ PASS: Output file should be created (File exists: /ai/scripts/files2xml/tests/results/basic_output.xml)
+Basic functionality test completed successfully
+[0;32m✓ PASSED[0m: test_01_basic_functionality
+
+[1;33mRunning test: test_02_file_types[0m
+----------------------------------------
+Testing handling of different file types...
+
+✓ PASS: files2xml should exit with status 0 (Expected: 0, Actual: 0)
+✓ PASS: Output file should be created (File exists: /ai/scripts/files2xml/tests/results/file_types_output.xml)
+File types test completed successfully
+[0;32m✓ PASSED[0m: test_02_file_types
+
+[1;33mRunning test: test_03_directory_processing[0m
+----------------------------------------
+Testing directory processing...
+
+✓ PASS: files2xml should exit with status 0 (Expected: 0, Actual: 0)
+✓ PASS: Output file should be created (File exists: /ai/scripts/files2xml/tests/results/directory_output.xml)
+Warning: Expected 5 files, found 6
+Directory processing test completed successfully
+[0;32m✓ PASSED[0m: test_03_directory_processing
+
+[1;33mRunning test: test_04_ignore_patterns[0m
+----------------------------------------
+Testing ignore patterns...
+
+✓ PASS: Default ignore should exit with status 0 (Expected: 0, Actual: 0)
+
+✓ PASS: Custom ignore should exit with status 0 (Expected: 0, Actual: 0)
+
+✓ PASS: Clear defaults should exit with status 0 (Expected: 0, Actual: 0)
+Warning: ignored.txt found in default output
+Ignore patterns test completed successfully
+[0;32m✓ PASSED[0m: test_04_ignore_patterns
+
+[1;33mRunning test: test_05_git_integration[0m
+----------------------------------------
+Testing Git repository integration...
+
+✓ PASS: files2xml with Git repo should exit with status 0 (Expected: 0, Actual: 0)
+✓ PASS: Output file should be created (File exists: /ai/scripts/files2xml/tests/results/git_output.xml)
+Git integration test completed successfully
+[0;32m✓ PASSED[0m: test_05_git_integration
+
+[1;33mRunning test: test_06_minify_option[0m
+----------------------------------------
+Testing XML minification option...
+
+✓ PASS: Normal execution should exit with status 0 (Expected: 0, Actual: 0)
+
+✓ PASS: Minified execution should exit with status 0 (Expected: 0, Actual: 0)
+Warning: Minified output (0 newlines) does not have fewer newlines than normal output (0 newlines)
+Minify option test completed successfully
+[0;32m✓ PASSED[0m: test_06_minify_option
+
+[1;33mRunning test: test_07_compress_option[0m
+----------------------------------------
+Testing content compression option...
+
+✓ PASS: Normal execution should exit with status 0 (Expected: 0, Actual: 0)
+
+✓ PASS: Compressed execution should exit with status 0 (Expected: 0, Actual: 0)
+Normal size: 5820 bytes
+Compressed size: 631 bytes
+Compression option test completed successfully
+[0;32m✓ PASSED[0m: test_07_compress_option
+
+[1;33mRunning test: test_08_no_content_option[0m
+----------------------------------------
+Testing no-content option...
+
+✓ PASS: Normal execution should exit with status 0 (Expected: 0, Actual: 0)
+
+✓ PASS: No-content execution should exit with status 0 (Expected: 0, Actual: 0)
+No-content option test completed successfully
+[0;32m✓ PASSED[0m: test_08_no_content_option
+
+[1;33mRunning test: test_09_max_file_size[0m
+----------------------------------------
+Testing maximum file size option...
+
+✓ PASS: Default max size should exit with status 0 (Expected: 0, Actual: 0)
+files2xml: files_to_xml: File '/ai/scripts/files2xml/tests/results/oversized.dat' too large (2.0MiB), skipping
+
+✓ PASS: Custom max size should exit with status 0 (Expected: 0, Actual: 0)
+Maximum file size option test completed successfully
+[0;32m✓ PASSED[0m: test_09_max_file_size
+
+[1;33mRunning test: test_10_combined_options[0m
+----------------------------------------
+Testing combinations of multiple options...
+
+
+
+
+
+
+
+
+Normal size: 250 bytes
+Minified size: 237 bytes
+No-content size: 228 bytes
+Compressed size: 321 bytes
+All options size: 215 bytes
+Combined options test completed successfully
+[0;32m✓ PASSED[0m: test_10_combined_options
+
+[1;33mRunning test: test_11_error_handling[0m
+----------------------------------------
+Testing error handling...
+✓ No input files correctly caused an error (status 1)
+Nonexistent file test exited with status 1
+XML validation failed for /ai/scripts/files2xml/tests/results/error_output.xml
+Warning: Output from nonexistent file test is not valid XML
+Unreadable file test exited with status 0
+✓ Output from unreadable file test is valid XML
+✓ Invalid option correctly caused an error (status 1)
+✓ Invalid max-file-size correctly caused an error (status 1)
+Error handling test completed successfully
+[0;32m✓ PASSED[0m: test_11_error_handling
+
+[1;33mRunning test: test_12_attribute_structure[0m
+----------------------------------------
+Testing attribute-based XML structure...
+
+✓ PASS: files2xml should exit with status 0 (Expected: 0, Actual: 0)
+✓ PASS: Output file should be created (File exists: /ai/scripts/files2xml/tests/results/attribute_structure.xml)
+Attribute structure test completed successfully
+[0;32m✓ PASSED[0m: test_12_attribute_structure
+
+[1;33mRunning test: test_helpers[0m
+----------------------------------------
+[0;32m✓ PASSED[0m: test_helpers
+

@@ -1,18 +1,66 @@
 #!/bin/bash
+#shellcheck disable=SC2128
 #
 # files2xml - Convert files to XML with metadata and content
+# 
+# A Bash utility that creates XML representations of files including their
+# metadata and content. Text files are embedded as CDATA sections, while 
+# binary files are base64-encoded. Provides Git repository integration
+# and custom file filtering.
+#
+# Version: 1.2.0
+# Author: Files2XML Team
+# License: GPL-3
 #
 set -eEuo pipefail
 
 # Constants
+# XML document version
 declare -r XML_VERSION='1.0'
+# XML document encoding
 declare -r XML_ENCODING='UTF-8'
+# Default maximum file size (1GB) in bytes
+# Can be overridden with -m/--max-file-size option
 declare -i MAX_FILE_SIZE=$((1024*1024*1024))
-declare -a IGNORE=('*.mp*' '~*' '*~' '*.bak' '*.log' '*.old' '*LI*')
+# Default file patterns to ignore
+# Can be overridden or cleared with -i/--ignore option
+declare -a IGNORE=(
+  # File extensions and patterns
+  '*.mp*' '~*' '*~' '*.bak' '*.log' '*.old' '*LI*'
+  # Common directories to ignore (with trailing /* to match contents)
+  '__pycache__/*' '.cache/*' '.venv/*' 'venv/*' '.gudang/*' 'gudang/*'
+)
+# Enable compression (0=disabled, 1=enabled)
+# Enabled with -c/--compress option
+declare -i USE_COMPRESSION=0
+# Skip content (0=include content, 1=metadata only)
+# Enabled with -n/--no-content option
+declare -i SKIP_CONTENT=0
+# Minify XML output (0=pretty, 1=minified)
+# Enabled with -M/--minify option
+declare -i MINIFY_XML=0
+# Verbosity level 
+# 0: quiet (no output except errors)
+# 1: normal verbosity (basic processing info)
+# 2+: debug level verbosity (detailed file processing, pattern matching, etc.)
 declare -i VERBOSE=0
 
-# Escape XML special characters
-# Args: $1 - String to escape
+# Escape XML special characters in a string
+# 
+# Replaces XML special characters (&, <, >, ", ') with their corresponding
+# XML entity references to prevent XML parsing errors when embedding strings
+# in XML content or attributes.
+#
+# Args:
+#   $1 - String to escape. If empty or not provided, returns empty string.
+# Returns:
+#   Escaped string with XML entities replaced
+# Examples:
+#   xml_escape "<file & name>"
+#   Output: "&lt;file &amp; name&gt;"
+#
+#   xml_escape ""
+#   Output: "" (empty string)
 xml_escape() {
   local s="${1:-}"
   s="${s//&/&amp;}"
@@ -23,17 +71,77 @@ xml_escape() {
   echo "$s"
 }
 
-# Verify required tools are available
+# Verify that all required external tools are available
+# 
+# Checks if all external commands required by the script are available in the
+# current environment. The required tools include basic file processing utilities
+# and optionally gzip when compression is enabled. This function should be called
+# before processing any files to ensure all dependencies are satisfied.
+# 
+# Returns:
+#   0 - All required commands are available
+#   1 - One or more required commands are missing
+# Side effects:
+#   Prints error message to stderr for any missing commands
+# Dependencies:
+#   - basename: For extracting filenames
+#   - file: For MIME type and encoding detection
+#   - stat: For file metadata
+#   - date: For formatting timestamps
+#   - sed: For processing text content
+#   - base64: For encoding binary files
+#   - readlink: For resolving symlinks
+#   - numfmt: For human-readable file size conversion
+#   - xml_escape: Internal function for XML escaping
+#   - gzip: Required only when USE_COMPRESSION=1
 check_commands() {
   local -a cmds=(basename file stat date sed base64 readlink numfmt xml_escape)
+  
+  # Check for gzip if compression is enabled
+  if ((USE_COMPRESSION)); then
+    cmds+=(gzip)
+  fi
+  
   for cmd in "${cmds[@]}"; do
     command -v "$cmd" &>/dev/null || type "$cmd" &>/dev/null || { stderr "Required command not found: $cmd"; return 1; }
   done
   return 0
 }
 
-# Convert files to XML format
-# Args: $1+ - Input files to process
+# Convert files to XML format with metadata and content
+# 
+# Processes each input file, extracts metadata, and creates an XML representation
+# with the file's content included. The function handles different file types:
+# - Text files are embedded as CDATA sections with proper XML escaping
+# - Binary files are base64-encoded
+# - Both types can be compressed using gzip if USE_COMPRESSION=1
+# - Content can be omitted entirely if SKIP_CONTENT=1
+# 
+# This function also handles output formatting, supporting:
+# - Pretty-printed XML with indentation (default)
+# - Minified XML with no whitespace (when MINIFY_XML=1)
+# 
+# Files exceeding MAX_FILE_SIZE are skipped with an error message, but
+# processing continues for remaining files.
+# 
+# Args:
+#   $@ - One or more input files to process (array of file paths)
+# Returns:
+#   0 - Success (even if some files were skipped)
+#   1 - Error (no input files or missing required commands)
+# Outputs:
+#   XML document to stdout with this structure:
+#   <Files>
+#     <file fqfn="..." type="..." size="..." modified="...">
+#       <content>[file content or attributes]</content>
+#     </file>
+#     ...
+#   </Files>
+#   
+#   Error messages to stderr
+# Examples:
+#   files_to_xml file1.txt file2.bin
+#   files_to_xml /path/to/important/files/*
 files_to_xml() {
   (($# < 1)) && { stderr "$FUNCNAME: No input files"; return 1; }
   check_commands || { stderr "$FUNCNAME: Missing required commands"; return 1; }
@@ -41,8 +149,13 @@ files_to_xml() {
   local file fqfn name type encoding modified content escaped_file escaped_name
   local -i size total_files=$# current_file=0
 
-  echo "<?xml version=\"$XML_VERSION\" encoding=\"$XML_ENCODING\"?>"
-  echo '<Files>'
+  # XML declaration
+  if ((MINIFY_XML)); then
+    echo -n "<?xml version=\"$XML_VERSION\" encoding=\"$XML_ENCODING\"?><Files>"
+  else
+    echo "<?xml version=\"$XML_VERSION\" encoding=\"$XML_ENCODING\"?>"
+    echo '<Files>'
+  fi
 
   for file in "$@"; do
     fqfn=$(readlink -m "$file") || { stderr "$FUNCNAME: Failed to resolve path for '$file'"; continue; }
@@ -64,57 +177,248 @@ files_to_xml() {
 
     modified=$(date -d @"$(stat -c %Y "$fqfn")" +"%Y-%m-%dT%H:%M:%S") || { stderr "$FUNCNAME: Failed to get modified time for '$fqfn'"; continue; }
     escaped_file=$(xml_escape "$fqfn")
-    escaped_name=$(xml_escape "$name")
 
     ((VERBOSE)) && { stderr "$FUNCNAME: File details: Name='$name', Type='$type', Encoding='$encoding', Size='$size'"; }
 
-    echo "  <file>"
-    echo "    <fqfn>$escaped_file</fqfn>"
-    echo "    <n>$escaped_name</n>"
-    echo "    <type>$type</type>"
-    echo "    <size>$size</size>"
-    echo "    <modified>$modified</modified>"
-
-    if [[ "$encoding" == binary ]]; then
-      # Binary: base64 encode
-      ((VERBOSE)) && { stderr "$FUNCNAME: Handling as binary file"; }
-      content=$(base64 -w 0 "$fqfn") || {
-        stderr "$FUNCNAME: Failed to base64 encode '$fqfn'"
-        echo "    <content encoding=\"base64\" error=\"failed_to_encode\"/>"
-        echo "  </file>"
-        continue
-      }
-      echo "    <content encoding=\"base64\">$content</content>"
+    # Always use attributes for metadata (without redundant name attribute)
+    if ((MINIFY_XML)); then
+      # Minified output with attributes
+      echo -n "<file fqfn=\"$escaped_file\" type=\"$type\" size=\"$size\" modified=\"$modified\">"
     else
-      # Text: embed in CDATA, escaping "]]>"
-      ((VERBOSE)) && { stderr "$FUNCNAME: Handling as text file"; }
-      content=$(sed 's/]]>/]]]]><![CDATA[>/g' "$fqfn") || {
-        stderr "$FUNCNAME: Failed to process content for '$fqfn'"
-        echo "    <content error=\"failed_to_process_cdata\"/>"
-        echo "  </file>"
-        continue
-      }
-      echo "    <content><![CDATA[$content]]></content>"
+      # Pretty output with attributes
+      echo "  <file fqfn=\"$escaped_file\" type=\"$type\" size=\"$size\" modified=\"$modified\">"
     fi
-    echo "  </file>"
+
+    # Skip content if metadata-only mode is enabled
+    if ((SKIP_CONTENT)); then
+      ((VERBOSE)) && { stderr "$FUNCNAME: Skipping content (metadata-only mode)"; }
+      if ((MINIFY_XML)); then
+        echo -n "<content excluded=\"metadata_only\"/></file>"
+      else
+        echo "    <content excluded=\"metadata_only\"/>"
+        echo "  </file>"
+      fi
+      continue
+    fi
+    
+    if [[ "$encoding" == binary ]]; then
+      # Binary file processing
+      ((VERBOSE)) && { stderr "$FUNCNAME: Handling as binary file"; }
+      
+      if ((USE_COMPRESSION)); then
+        # Binary with compression: gzip then base64
+        ((VERBOSE)) && { stderr "$FUNCNAME: Using compression"; }
+        content=$(gzip -c "$fqfn" | base64 -w 0) || {
+          stderr "$FUNCNAME: Failed to compress and encode '$fqfn'"
+          if ((MINIFY_XML)); then
+            echo -n "<content encoding=\"base64\" compression=\"gzip\" error=\"failed_to_encode\"/></file>"
+          else
+            echo "    <content encoding=\"base64\" compression=\"gzip\" error=\"failed_to_encode\"/>"
+            echo "  </file>"
+          fi
+          continue
+        }
+        if ((MINIFY_XML)); then
+          echo -n "<content encoding=\"base64\" compression=\"gzip\">$content</content></file>"
+        else
+          echo "    <content encoding=\"base64\" compression=\"gzip\">$content</content>"
+        fi
+      else
+        # Binary without compression: standard base64
+        content=$(base64 -w 0 "$fqfn") || {
+          stderr "$FUNCNAME: Failed to base64 encode '$fqfn'"
+          if ((MINIFY_XML)); then
+            echo -n "<content encoding=\"base64\" error=\"failed_to_encode\"/></file>"
+          else
+            echo "    <content encoding=\"base64\" error=\"failed_to_encode\"/>"
+            echo "  </file>"
+          fi
+          continue
+        }
+        if ((MINIFY_XML)); then
+          echo -n "<content encoding=\"base64\">$content</content></file>"
+        else
+          echo "    <content encoding=\"base64\">$content</content>"
+        fi
+      fi
+    else
+      # Text file processing
+      ((VERBOSE)) && { stderr "$FUNCNAME: Handling as text file"; }
+      
+      if ((USE_COMPRESSION)); then
+        # Text with compression: gzip then base64
+        ((VERBOSE)) && { stderr "$FUNCNAME: Using compression"; }
+        content=$(gzip -c "$fqfn" | base64 -w 0) || {
+          stderr "$FUNCNAME: Failed to compress and encode '$fqfn'"
+          if ((MINIFY_XML)); then
+            echo -n "<content encoding=\"base64\" compression=\"gzip\" error=\"failed_to_encode\"/></file>"
+          else
+            echo "    <content encoding=\"base64\" compression=\"gzip\" error=\"failed_to_encode\"/>"
+            echo "  </file>"
+          fi
+          continue
+        }
+        if ((MINIFY_XML)); then
+          echo -n "<content encoding=\"base64\" compression=\"gzip\">$content</content></file>"
+        else
+          echo "    <content encoding=\"base64\" compression=\"gzip\">$content</content>"
+        fi
+      else
+        # Text without compression: CDATA with ]]> escaping
+        content=$(sed 's/]]>/]]]]><![CDATA[>/g' "$fqfn") || {
+          stderr "$FUNCNAME: Failed to process content for '$fqfn'"
+          if ((MINIFY_XML)); then
+            echo -n "<content error=\"failed_to_process_cdata\"/></file>"
+          else
+            echo "    <content error=\"failed_to_process_cdata\"/>"
+            echo "  </file>"
+          fi
+          continue
+        }
+        if ((MINIFY_XML)); then
+          echo -n "<content><![CDATA[$content]]></content></file>"
+        else
+          echo "    <content><![CDATA[$content]]></content>"
+        fi
+      fi
+    fi
+    # In non-minified mode, we need to close the file tag
+    if ! ((MINIFY_XML)); then
+      echo "  </file>"
+    fi
   done
 
-  echo '</Files>'
+  # Close the Files tag
+  if ((MINIFY_XML)); then
+    echo "</Files>"
+  else
+    echo '</Files>'
+  fi
 }
 
-# Check if git command is available
-# Returns: 0=available, 1=not available
+# Check if the git command is available in the current environment
+# 
+# Simple utility function to verify git is installed and available in the
+# current PATH. This is used before attempting to process git repositories
+# to provide a clear error message if git is not available.
+# 
+# Returns:
+#   0 - Git command is available
+#   1 - Git command is not available
+# Examples:
+#   if check_git_available; then
+#     echo "Git is available"
+#   else
+#     echo "Git is not installed or not in PATH"
+#   fi
 check_git_available() {
   command -v git &>/dev/null
   return $?
 }
 
-# Process files from git repositories
-# Args: $1+ - Git directories to scan
-# Returns: File list via stdout, one file per line, properly quoted
+# Process directories and output file paths
+# 
+# Recursively scans directories and outputs paths of all files
+# that don't match the ignore patterns. Each file path is properly quoted
+# for later evaluation. The function intelligently prunes directories that
+# match ignore patterns to improve performance when processing large directory
+# structures.
+# 
+# Args:
+#   $@ - One or more directories to scan (array of directory paths)
+# Returns:
+#   0 - Success (even if some subdirectories were skipped due to ignore patterns)
+#   1 - Directory not found/invalid (fails if any specified directory is invalid)
+# Outputs:
+#   File paths to stdout (one per line, quoted for eval using printf %q)
+#   Error messages to stderr
+# Examples:
+#   process_directories "/path/to/dir1" "/path/to/dir2"
+#   process_directories "$HOME/documents"
+# Notes:
+#   - Uses multiple pattern matching strategies for thorough filtering
+#   - Skips entire subdirectories that match ignore patterns for efficiency
+#   - Verbose output (VERBOSE>1) shows details about skipped files/directories
+process_directories() {
+  local dir file
+  
+  for dir in "$@"; do
+    [[ -d "$dir" ]] || { stderr "Directory '$dir' not found or not a directory"; return 1; }
+    
+    # Build a list of prune expressions for find to skip entire directories
+    local find_opts=() dir_to_skip find_prune=""
+    
+    # Add pruning for common directories that might have many files
+    for pat in "${IGNORE[@]}"; do
+      # If pattern ends with /* then add the directory to prune list
+      if [[ $pat == */* ]]; then
+        dir_to_skip="${pat%/*}"
+        if [[ -d "$dir/$dir_to_skip" ]]; then
+          find_opts+=( -path "$dir/$dir_to_skip" -prune -o )
+          ((VERBOSE > 1)) && stderr "Will prune directory: $dir/$dir_to_skip"
+        fi
+      fi
+    done
+    
+    # Use find to get all regular files in the directory and subdirectories
+    while IFS= read -r -d '' file; do
+      # Skip files matching ignore patterns
+      skip_file=0
+      for pat in "${IGNORE[@]}"; do
+        # Check if the file path matches the pattern
+        rel_path="${file#$dir/}"  # Get path relative to the directory being processed
+        
+        # Test with various matching strategies
+        if [[ "$rel_path" == $pat || 
+              "$(basename "$file")" == $pat || 
+              "$rel_path" == *$pat || 
+              "$rel_path" == */$pat/* || 
+              "$rel_path" == */$pat || 
+              "$file" == *$pat ]]; then
+          ((VERBOSE > 1)) && stderr "Skipping '$file' - matches ignore pattern '$pat'"
+          skip_file=1
+          break
+        fi
+      done
+      
+      # Only output if file wasn't skipped
+      if [[ $skip_file -eq 0 ]]; then
+        # Print each file on its own line, properly quoted for later parsing
+        printf "%q\n" "$file"
+      fi
+    done < <(find "$dir" "${find_opts[@]}" -type f -print0)
+  done
+  
+  return 0
+}
+
+# Process files from git repositories and output their paths
+# 
+# Scans one or more git repositories and outputs paths of tracked files
+# that don't match the ignore patterns. Each file path is properly quoted
+# for later evaluation. Only tracks files that are known to git (using git ls-files).
+# 
+# Args:
+#   $@ - One or more git directories to scan (array of directory paths)
+#        If empty, defaults to current directory ('.')
+# Returns:
+#   0 - Success (all git repositories processed successfully)
+#   1 - Git command not available (git not installed or not in PATH)
+#   2 - Git directory not found/invalid (no .git directory found)
+# Outputs:
+#   File paths to stdout (one per line, quoted for eval using printf %q)
+#   Error messages to stderr
+# Examples:
+#   get_git_dirs "/path/to/repo1" "/path/to/repo2"
+#   get_git_dirs "."  # Process current directory as git repo
+# Notes:
+#   - Handles multiple repositories in a single call
+#   - Uses absolute paths for all files
+#   - Uses same ignore pattern filtering as directory processing
+#   - Preserves current working directory (changes directory internally)
 get_git_dirs() {
   local gitdir olddir file
-  local -a allFiles=() afiles=()
+  local -a allFiles=()
 
   # Verify git command is available
   if ! check_git_available; then
@@ -124,18 +428,32 @@ get_git_dirs() {
 
   for gitdir in "$@"; do
     [[ -z $gitdir ]] && gitdir='.'
-    [[ -d "$gitdir"/.git ]] || { stderr "No '$gitdir/.git' directory"; exit 2; }
+    [[ -d "$gitdir"/.git ]] || { stderr "No '$gitdir/.git' directory"; return 2; }
 
     olddir="$PWD"
-    cd "$gitdir" || { stderr ".git directory '$gitdir' not found"; exit 2; }
+    cd "$gitdir" || { stderr ".git directory '$gitdir' not found"; return 2; }
 
     readarray -t allFiles < <(git ls-files)
     for file in "${allFiles[@]}"; do
+      skip_file=0
       for pat in "${IGNORE[@]}"; do
-        [[ $file == $pat ]] && continue 2
+        # Use proper glob pattern matching with multiple strategies
+        if [[ $file == $pat || 
+              $(basename "$file") == $pat || 
+              $file == *$pat || 
+              $file == */$pat/* || 
+              $file == */$pat ]]; then
+          ((VERBOSE > 1)) && stderr "Skipping git file '$file' - matches ignore pattern '$pat'"
+          skip_file=1
+          break
+        fi
       done
-      # Print each file on its own line, properly quoted for later parsing
-      printf "%q\n" "$PWD/$file"
+      
+      # Only output if file wasn't skipped
+      if [[ $skip_file -eq 0 ]]; then
+        # Print each file on its own line, properly quoted for later parsing
+        printf "%q\n" "$PWD/$file"
+      fi
     done
     cd "$olddir"
   done
@@ -143,44 +461,90 @@ get_git_dirs() {
   return 0
 }
 
-# Error reporting function
+# Output an error message to stderr
+# 
+# Formats and writes error messages to standard error with the
+# program name as prefix. This provides consistent error reporting
+# throughout the script.
+# 
+# Args:
+#   $1 - Error message to display
+# Outputs:
+#   Formatted error message to stderr ("files2xml: [message]")
+# Examples:
+#   stderr "File not found"        # Outputs: files2xml: File not found
+#   stderr "Invalid option: -x"    # Outputs: files2xml: Invalid option: -x
+#   stderr "Error code: $?"        # Outputs: files2xml: Error code: [exit_code]
 stderr() {
   >&2 echo -e "files2xml: $1"
 }
 
 # Error trap handlers
+# ERR trap: Provides detailed debugging information when a command fails unexpectedly
 trap 'echo "files2xml: Error at line $LINENO: Command \"$BASH_COMMAND\" failed with status $?" >&2' ERR
+# EXIT trap: Ensures clean termination by adding a newline to stderr if needed
 trap 'echo "" >&2' EXIT
 
 # Execute script if run directly
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  # Display usage information
+  # Display program usage information and exit
+  # 
+  # Shows comprehensive help information about the script including syntax,
+  # available options, argument formats, and usage examples. This function
+  # is called when the -h/--help option is used or when there's an error in
+  # command-line argument parsing that needs to be explained to the user.
+  # 
+  # Args:
+  #   $1 - [Optional] Exit code (default: 0)
+  #        Use 0 for normal help display, non-zero for error conditions
+  # Outputs:
+  #   Usage information to stdout, including:
+  #   - Command syntax
+  #   - Available options with descriptions
+  #   - Detailed usage examples
+  #   - Feature highlights
+  # Side effects:
+  #   Exits the program with the specified exit code
   usage() {
     cat <<EOF
 files2xml - Convert files to XML with metadata and content
 
-Usage: ${0##*/} [OPTIONS] [FILE ...]
+Usage: ${0##*/} [OPTIONS] [FILE|DIRECTORY ...]
 
 Arguments:
-  FILE                One or more files to include in the XML (optional if --gitdir is used)
+  FILE|DIRECTORY      One or more files or directories to include in the XML (optional if --gitdir is used)
+                      Directories will be recursively processed
 
 Options:
   -m, --max-file-size SIZE  Set maximum file size (default: 1GB)
   -g, --gitdir DIR          Include files from git repository (can be used multiple times)
   -i, --ignore PATTERN      Add glob pattern to ignore list (can be used multiple times)
-                            Default patterns: '*.mp*' '~*' '*~' '*.bak' '*.log' '*.old' '*LI*'
-                            Use -i with no argument to clear the default patterns
+                            Patterns are matched against full file paths and basenames
+                            Default patterns:
+                              Files: '*.mp*' '~*' '*~' '*.bak' '*.log' '*.old' '*LI*'
+                              Dirs:  '__pycache__/*' '.cache/*' '.venv/*' 'venv/*' '.gudang/*' 'gudang/*'
+                            Use -i "" to clear the default patterns
+                            Example: -i "sessions/*" will ignore all files in sessions/ directory
+  -c, --compress            Enable gzip compression for file content (reduces XML size)
+  -n, --no-content          Exclude file content (metadata only, significantly reduces XML size)
+  -M, --minify              Produce minified XML output (no indentation or extra whitespace)
   -v, --verbose             Increase verbosity
   -q, --quiet               Suppress all messages
   -V, --version             Show version information
   -h, --help                Show this help message
 
 Examples:
-  # Basic usage
+  # Basic usage with files
   ${0##*/} file1.txt file2.pdf >files.xml
 
-  # Include git repository files (can be used with explicit files)
-  ${0##*/} --gitdir /path/to/repo1 --gitdir /path/to/repo2 additional_file.txt >combined.xml
+  # Process directories recursively
+  ${0##*/} /path/to/directory >directory_files.xml
+
+  # Mix files and directories
+  ${0##*/} file1.txt /path/to/directory file2.pdf >mixed.xml
+
+  # Include git repository files (can be used with explicit files and directories)
+  ${0##*/} --gitdir /path/to/repo1 --gitdir /path/to/repo2 additional_file.txt /some/directory >combined.xml
 
   # Ignore specific file patterns (adds to default patterns)
   ${0##*/} --ignore "*.tmp" --ignore "*.cache" dir/*.py >files.xml
@@ -188,21 +552,68 @@ Examples:
   # Clear default ignore patterns and set custom ones
   ${0##*/} --ignore "" --ignore "*.tmp" --gitdir /path/to/repo >files.xml
 
+  # Generate smaller XML with compression
+  ${0##*/} --compress /path/to/directory >compressed.xml
+
+  # Generate metadata-only XML (no file content, much smaller)
+  ${0##*/} --no-content /path/to/directory >metadata_only.xml
+
+  # Combine compression and metadata-only options for specific use cases
+  ${0##*/} --compress --no-content --gitdir /path/to/repo >minimal.xml
+  
+  # Generate minified XML output for smaller file size
+  ${0##*/} --minify /path/to/directory >minified.xml
+  
+  # Combine all size-reduction options for smallest possible XML
+  ${0##*/} --compress --no-content --minify /path/to/directory >smallest.xml
+
   # Process with XML tools
   ${0##*/} *.sh | xmlstarlet sel -t -v "//file[type='text/x-shellscript']/n"
 
 Features:
+  - Efficient XML structure with attributes for metadata
   - Text files stored in CDATA sections
   - Binary files base64-encoded
+  - Optional gzip compression for smaller XML output
+  - Metadata-only mode for extremely compact output
   - XML-escaped paths and names
   - Automatic binary vs. text detection
   - Git repository integration (additive with regular files)
   - Custom file ignore patterns
+  - Directory recursion support
 EOF
     exit "${1:-0}"
   }
 
   # Main script entry point
+  # 
+  # Parses command-line arguments, processes files, and generates XML output.
+  # This function orchestrates the entire process:
+  # 
+  # 1. Parses command-line options using getopt
+  # 2. Collects files from multiple sources:
+  #    - Explicit file paths from command-line arguments
+  #    - Directory contents (recursively) from specified directories
+  #    - Tracked files from git repositories
+  # 3. Applies filtering based on ignore patterns
+  # 4. Removes duplicate files using canonical paths
+  # 5. Processes all files and generates XML output
+  # 
+  # Args:
+  #   Command-line arguments ($@) - Options and file/directory paths
+  # Returns:
+  #   0 - Success (XML output generated)
+  #   1 - Error in parsing options, no input files, or critical failure
+  # Outputs:
+  #   XML document to stdout
+  #   Error/verbose messages to stderr
+  # Configuration:
+  #   - MAX_FILE_SIZE: Maximum size of files to process
+  #   - IGNORE: Patterns of files/directories to ignore
+  #   - USE_COMPRESSION: Whether to compress file content
+  #   - SKIP_CONTENT: Whether to omit file content
+  #   - MINIFY_XML: Whether to generate minified XML
+  #   - VERBOSE: Level of verbosity for status messages
   main() {
     local VERSION="1.2.0"
     local PRG="${0##*/}"
@@ -210,8 +621,8 @@ EOF
     # Parse options
     local -a aFiles=() gitDirs=()
     local options
-    options=$(getopt -o m:g:i:vqVh --long max-file-size:,gitdir:,ignore:,verbose,quiet,version,help --name "$PRG" -- "$@")
-    if [[ $? -ne 0 ]]; then
+    options=$(getopt -o m:g:i:cnMvqVh --long max-file-size:,gitdir:,ignore:,compress,no-content,minify,verbose,quiet,version,help --name "$PRG" -- "$@")
+    if (($?)); then
         stderr "Error parsing options."
         usage 1
     fi
@@ -242,6 +653,9 @@ EOF
           fi
           shift
           ;;
+        -c|--compress) USE_COMPRESSION=1; shift ;;
+        -n|--no-content) SKIP_CONTENT=1; shift ;;
+        -M|--minify) MINIFY_XML=1; shift ;;
         -v|--verbose) VERBOSE=$((VERBOSE + 1)); shift ;;
         -q|--quiet) VERBOSE=0; shift ;;
         -V|--version) echo "$PRG v${VERSION}"; exit 0 ;;
@@ -251,15 +665,64 @@ EOF
       esac
     done
 
-    # Convert human-readable size to bytes
+    # Convert human-readable size to bytes (e.g., "1G" -> 1073741824)
     MAX_FILE_SIZE=$(numfmt --from=si --to=none "$current_max_file_size" 2>/dev/null) || {
       stderr "Invalid --max-file-size format '$current_max_file_size'. Use digits with K, M, G suffix."
       exit 1
     }
 
-    # Collect files
-    aFiles+=("$@")
-    ((VERBOSE)) && { >&2 declare -p aFiles; }
+    # Collect files and directories
+    local -a rawFiles=("$@") dirList=()
+    local item
+    
+    # Separate files and directories
+    for item in "${rawFiles[@]}"; do
+      if [[ -d "$item" ]]; then
+        dirList+=("$item")
+      elif [[ -f "$item" ]]; then
+        aFiles+=("$item")
+      else
+        stderr "Item '$item' is neither a file nor a directory, skipping"
+      fi
+    done
+    
+    ((VERBOSE)) && { 
+      stderr "Files specified directly: ${#aFiles[@]}"
+      stderr "Directories to process: ${#dirList[@]}"
+      stderr "Ignore patterns: ${IGNORE[*]}"
+      stderr "Compression: $( ((USE_COMPRESSION)) && echo "enabled" || echo "disabled" )"
+      stderr "Content mode: $( ((SKIP_CONTENT)) && echo "metadata only" || echo "full content" )"
+      stderr "XML format: $( ((MINIFY_XML)) && echo "minified" || echo "pretty" )"
+      stderr "XML structure: using attributes for metadata"
+    }
+
+    # Process directories and add contained files
+    if ((${#dirList[@]})); then
+      # Create a temporary file for process_directories output
+      local dir_files_tmp
+      dir_files_tmp=$(mktemp) || { stderr "Failed to create temporary file"; exit 1; }
+
+      # Run process_directories and capture its exit status
+      process_directories "${dirList[@]}" > "$dir_files_tmp"
+      local dir_status=$?
+
+      # Only process if process_directories succeeded
+      if [[ $dir_status -eq 0 ]]; then
+        # Use readarray to handle filenames with spaces properly
+        while IFS= read -r dirfile; do
+          # Skip empty lines
+          [[ -z "$dirfile" ]] && continue
+          # Evaluate the printf %q quoted format
+          eval "aFiles+=( $dirfile )"
+        done < "$dir_files_tmp"
+        ((VERBOSE)) && stderr "Added $(wc -l < "$dir_files_tmp") files from directories"
+      else
+        stderr "Failed to process directories (error $dir_status)"
+      fi
+
+      # Clean up temporary file
+      rm -f "$dir_files_tmp"
+    fi
 
     # Add files from git repositories
     if ((${#gitDirs[@]})); then
@@ -280,6 +743,7 @@ EOF
           # Evaluate the printf %q quoted format
           eval "aFiles+=( $gitfile )"
         done < "$git_files_tmp"
+        ((VERBOSE)) && stderr "Added $(wc -l < "$git_files_tmp") files from git directories"
       else
         stderr "Failed to process git repositories (error $git_status)"
         [[ ${#aFiles[@]} -eq 0 ]] && exit 1
@@ -294,17 +758,32 @@ EOF
     ((${#aFiles[@]})) || { stderr "No input files specified."; usage 1; }
     ((VERBOSE)) && { >&2 declare -p aFiles MAX_FILE_SIZE; }
 
-    local -Ai seen=()
+    # Remove duplicate files by using canonical paths as unique identifiers
+    local -A seen=()
     local -a result=()
-    local -- f
+    local canonical_path
+    
     for f in "${aFiles[@]}"; do
-      f="$(readlink -fn -- "$f")"
-      [[ -v seen["${f//[\/\.\-]/}"] ]] && continue
-      # First time seeing this element
-      result+=("$f")
-      seen["${f//[\/\.\-]/}"]=1
+      # Get canonical path (resolves symlinks, normalizes path)
+      canonical_path="$(readlink -fn -- "$f")" || { 
+        stderr "Failed to resolve path: $f"; 
+        continue; 
+      }
+      
+      # Skip if we've already seen this canonical path
+      if [[ -v seen["$canonical_path"] ]]; then
+        ((VERBOSE)) && stderr "Skipping duplicate file: $f (already seen as ${seen["$canonical_path"]})"
+        continue
+      fi
+      
+      # First time seeing this canonical path
+      result+=("$canonical_path")
+      seen["$canonical_path"]="$f"  # Store original path for reference
+      
+      ((VERBOSE > 1)) && stderr "Added file: $canonical_path"
     done
-    local -a aFiles=("${result[@]}")
+    
+    local -a aFiles=("${result[@]}") # Replace original array with deduplicated one
 
     # Process files
     files_to_xml "${aFiles[@]}"

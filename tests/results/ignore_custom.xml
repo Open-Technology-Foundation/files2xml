@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Files>
+  <file fqfn="/ai/scripts/files2xml/tests/testfiles/binary.dat" type="application/octet-stream" size="1024" modified="2025-05-08T10:53:47">
+    <content encoding="base64">XTunq+KSQ4oiG08Vi0RM7qanCiLOYagNgiLuUk0gMLEM//B48tquvyVj03a6cSZJRySpAEUmXICD+CoXILP2jDWUxd2h3OLpxh/ZMbZPfh3yTf3SfRphVI9+vjgJH6DtTfGKcpsvd9YIoJnnLOSrLIySbmdgttMXwvVs5f2vNOTmkUQNuHCemJhwi/i2oIUGkAjE/o3bZaMQubRgwqgxHiMbTlF7Kb7L7qPcfAUqsw66toNqqVQ0dO8CmwIQ+7h5ZYRx16LWCR755g6YwbkeDphGzgmg7vaNc+E/B1O2KvFn7CSlXdIJsjNZ19o/SyZThGrBlosCRKAEor+G0o6sH4jmbqysohcHnif8bIMII+vhhGIb/BV+n3q2+p8/8hA88+DFpRaVGQe6FRqyxrXRnRUs8a851EdVmsSKmk0swwaHi8+3SEAnb/+yPbPWqB5agQpkRjpIr1D+osgksjjXKsHNgyGVFsdmHMD1lAMpeGcpNP+lRTJxgoTopfv+wvc6JLT6kmUhoGrk+h/exFw31hI2YyzN9GzRi6KxHFidTAookkNTDPsLD5YXpufLaH94UVWc/17hUFE0Z29sH1wDn02hs8F+M05xjtm4feqLJjFxcurH+BI5wDIQ7p4CAzrSjddke6UCaCJeaA/dXzAW9Pyg5G0tFpkQDeEKimVFbL+H2CPh/gD9R2VRVOHsVP4KLlApHhMzNtqVMpfYvfVdXk1xW2b6C8VBWH3LFntxjssv1X+Q3iZMfCQu1bdCzwTmWZx6hVeQFZSG0mpooHRiqVRgNMBC2HLJqQgXm9Q4oK05ThUDVXkzwCMfBVA7RJbg9d13IoB0IGpRyoWYDkajnYa8OlTgEcZVau0FmN8w5sA0VfM4YnJ0ZFWQylzZSdz1oamDBQFeyQi0cw6NrbdaxRuVXaiI3Yd3Nf/7KiIfY7AlP3x4RBjJlGSQg49l2Ctu9H8MXSl+tQp+BErnq5jLtsYs5fp5DN1FKU80A7IdliPAFRntiLowGccPnoQsW5a4gh6wuzIC9cscKBk438PfTO1UowZ3GgF+bz5UbLTLYb8uk3zzIr1eprEL2bju4LbrYdEgu3lXxGoA+ZRh2+mPRFgnKCwSlBd3K6Ru5wez1oRAlW88AmLy5JILBJA/JVVuetMzXJzMfbJOw4Dxz1Ij2lvWIy//y8WL30OWRIRfLgQe48TdhKg80upjh/S6OKh4BmVgHi2fmhU3IuJSBWJ1zBBV0zSKozCAWoWEpu3EsQ4iFrT35x0CoZmTgRcovF8wY5xwpDGpASkDiVUytAz5zBfar/SVfGgofB5gnOlOGRMhuiWuHo+LXFZrz6q7deWzzht4EeYZcyqrpqgBWIrpUg==</content>
+  </file>
+  <file fqfn="/ai/scripts/files2xml/tests/testfiles/script.sh" type="text/plain" size="44" modified="2025-05-08T10:53:47">
+    <content><![CDATA[#\!/bin/bash\necho 'This is a shell script']]></content>
+  </file>
+</Files>
