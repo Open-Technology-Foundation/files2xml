@@ -1,12 +1,19 @@
 # files2xml
 
-Convert files to XML representation with metadata and content.
-
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+> Convert files to XML representation with complete metadata and content
 
 ## Overview
 
-`files2xml` is a robust Bash utility that creates standardized XML representations of files, including their metadata and content. It automatically handles both text and binary files appropriately, embedding text content within CDATA sections and encoding binary content as base64. Designed for archiving, documentation, data transfer, or integration with XML processing pipelines.
+`files2xml` is a robust Bash utility that creates standardized XML representations of files, including their metadata and content. It automatically handles both text and binary files appropriately, embedding text content within CDATA sections and encoding binary content as base64.
+
+This tool is designed for:
+- Archiving file content with metadata
+- Documenting filesystem contents
+- Transferring file data over XML-based protocols
+- Integrating with XML processing pipelines
+- Creating file inventories for analysis
 
 ## Features
 
@@ -57,6 +64,36 @@ Convert files to XML representation with metadata and content.
 
 ## Installation
 
+### Prerequisites
+
+- **Operating System**: Ubuntu 24.04.2 or compatible Linux distribution
+- **Bash**: Version 5.2.21 or higher (required for associative arrays)
+- **Required utilities**: basename, file, stat, date, sed, base64, readlink, numfmt, getopt
+- **Optional**: Git (for repository integration), gzip (for compression), xmlstarlet/xmllint (for XML processing)
+
+### One-Line Installation (System-Wide)
+
+To install files2xml system-wide with a single command (requires sudo privileges):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Open-Technology-Foundation/files2xml/main/install.sh | sudo bash
+```
+
+or if you prefer wget:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/Open-Technology-Foundation/files2xml/main/install.sh | sudo bash
+```
+
+The installer automatically:
+- Checks and installs dependencies
+- Verifies Bash version compatibility
+- Installs the script to `/usr/local/bin/files2xml`
+- Generates and installs the man page
+- Installs documentation to `/usr/local/share/doc/files2xml/`
+
+### Manual Installation
+
 ```bash
 # Clone the repository
 git clone https://github.com/Open-Technology-Foundation/files2xml.git
@@ -75,16 +112,16 @@ sudo cp files2xml /usr/local/bin/
 files2xml --help
 ```
 
-### Verification
+### Dependency Verification
 
-To verify all dependencies are installed:
+To verify all dependencies are installed and available:
 
 ```bash
-# Check for dependency errors
+# Check for missing dependencies
 ./files2xml --help 2>&1 | grep "Required command not found"
 ```
 
-If no output is produced, all dependencies are available.
+If no output is produced, all required commands are available in your system.
 
 ## Usage
 

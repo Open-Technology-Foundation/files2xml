@@ -294,21 +294,42 @@ When extending functionality, consider these primary extension points:
 
 ### Debugging
 
-1. Use the `-v` (verbose) flag to see detailed processing information:
+1. **Increase Verbosity**: Use the `-v` or `-vv` flags for progressively more detailed processing information:
    ```bash
+   # Basic verbose output (shows which files are processed)
    ./files2xml -v file.txt
+   
+   # Very verbose output (shows pattern matching, detailed operations)
+   ./files2xml -vv file.txt
    ```
 
-2. For complex issues, add temporary debug output:
+2. **Redirect Error Output**: Capture error messages and debug information in a log file:
    ```bash
-   # Add to relevant section
-   ((VERBOSE)) && { stderr "DEBUG: variable=$variable"; }
+   ./files2xml file.txt > output.xml 2> debug.log
    ```
 
-3. Test functions individually by sourcing the script:
+3. **Add Temporary Debug Output**: Insert additional debug statements to examine variables or logic:
+   ```bash
+   # In any section of code, add debug statements conditioned on verbosity
+   ((VERBOSE)) && { stderr "DEBUG: variable=$variable"; }
+   ((VERBOSE > 1)) && { stderr "TRACE: Entered function at $(date +%T.%N)"; }
+   ```
+
+4. **Test Individual Functions**: Source the script to test functions in isolation:
    ```bash
    source ./files2xml
    xml_escape "<test & string>"
+   check_commands
+   ```
+
+5. **Examine XML Output**: Use XML tools to verify the structure of produced XML:
+   ```bash
+   ./files2xml file.txt | xmllint --format -
+   ```
+
+6. **Test Pattern Matching**: Debug pattern matching issues with explicit tests:
+   ```bash
+   [[ "path/to/file.txt" == *.txt ]] && echo "Pattern matched" || echo "Pattern did not match"
    ```
 
 ## Release Process

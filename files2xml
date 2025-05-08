@@ -1,5 +1,5 @@
 #!/bin/bash
-#shellcheck disable=SC2128
+#shellcheck disable=SC2128  # Disable shellcheck warning about referencing arrays without index
 #
 # files2xml - Convert files to XML with metadata and content
 # 
@@ -7,6 +7,13 @@
 # metadata and content. Text files are embedded as CDATA sections, while 
 # binary files are base64-encoded. Provides Git repository integration
 # and custom file filtering.
+#
+# Basic usage:
+#   files2xml [OPTIONS] [FILE|DIRECTORY...] > output.xml
+#   files2xml --gitdir /path/to/repo > repo.xml
+#
+# See README.md for detailed documentation or run with --help flag.
+# Project: https://github.com/Open-Technology-Foundation/files2xml
 #
 # Version: 1.2.0
 # Author: Files2XML Team
@@ -102,6 +109,10 @@ check_commands() {
     cmds+=(gzip)
   fi
   
+  # Try two different methods to check for commands:
+  # 1. command -v: Standard way to check if a command exists
+  # 2. type: Fallback method that works in more shell environments
+  # This dual approach ensures maximum compatibility across systems
   for cmd in "${cmds[@]}"; do
     command -v "$cmd" &>/dev/null || type "$cmd" &>/dev/null || { stderr "Required command not found: $cmd"; return 1; }
   done
@@ -169,7 +180,8 @@ files_to_xml() {
     encoding=$(file --mime-encoding -b "$fqfn") || { stderr "$FUNCNAME: Failed to get encoding for '$fqfn'"; continue; }
     size=$(stat -c %s "$fqfn") || { stderr "$FUNCNAME: Failed to get size for '$fqfn'"; continue; }
 
-    # Check file size limit
+    # Check file size limit - skip files exceeding the maximum size configuration
+    # This prevents processing extremely large files that might exhaust memory
     if ((size > MAX_FILE_SIZE)); then
       stderr "$FUNCNAME: File '$fqfn' too large ($(numfmt --to=iec-i --suffix=B $size)), skipping"
       continue
@@ -202,11 +214,14 @@ files_to_xml() {
     fi
     
     if [[ "$encoding" == binary ]]; then
-      # Binary file processing
+      # Binary file processing - for files identified as binary by 'file --mime-encoding'
+      # Binary files must be base64-encoded to be safely included in XML
+      # This increases size by ~33% unless compression is used
       ((VERBOSE)) && { stderr "$FUNCNAME: Handling as binary file"; }
       
       if ((USE_COMPRESSION)); then
         # Binary with compression: gzip then base64
+        # This can help offset the base64 size increase, especially for compressible binary files
         ((VERBOSE)) && { stderr "$FUNCNAME: Using compression"; }
         content=$(gzip -c "$fqfn" | base64 -w 0) || {
           stderr "$FUNCNAME: Failed to compress and encode '$fqfn'"
@@ -242,11 +257,15 @@ files_to_xml() {
         fi
       fi
     else
-      # Text file processing
+      # Text file processing - for files identified as text by 'file --mime-encoding'
+      # Text files are handled differently from binary files:
+      # - By default, they're included directly in CDATA sections
+      # - Special handling is required for text containing CDATA end markers (]]>)
       ((VERBOSE)) && { stderr "$FUNCNAME: Handling as text file"; }
       
       if ((USE_COMPRESSION)); then
         # Text with compression: gzip then base64
+        # This typically provides significant size reduction for text files
         ((VERBOSE)) && { stderr "$FUNCNAME: Using compression"; }
         content=$(gzip -c "$fqfn" | base64 -w 0) || {
           stderr "$FUNCNAME: Failed to compress and encode '$fqfn'"
@@ -365,10 +384,17 @@ process_directories() {
       # Skip files matching ignore patterns
       skip_file=0
       for pat in "${IGNORE[@]}"; do
-        # Check if the file path matches the pattern
+        # Complex pattern matching logic to support various ignore pattern formats
+        # This uses multiple strategies to match files against ignore patterns:
+        # 1. Exact match against relative path
+        # 2. Match against filename only
+        # 3. Pattern appears anywhere in relative path
+        # 4. File is in a directory or subdirectory matching the pattern
+        # 5. File is directly in a directory matching the pattern
+        # 6. Pattern appears anywhere in absolute path
         rel_path="${file#$dir/}"  # Get path relative to the directory being processed
         
-        # Test with various matching strategies
+        # Test with various matching strategies for maximum flexibility
         if [[ "$rel_path" == $pat || 
               "$(basename "$file")" == $pat || 
               "$rel_path" == *$pat || 
@@ -437,7 +463,8 @@ get_git_dirs() {
     for file in "${allFiles[@]}"; do
       skip_file=0
       for pat in "${IGNORE[@]}"; do
-        # Use proper glob pattern matching with multiple strategies
+        # Apply the same comprehensive pattern matching as in process_directories
+        # This ensures consistent file filtering behavior across regular files and git-tracked files
         if [[ $file == $pat || 
               $(basename "$file") == $pat || 
               $file == *$pat || 
@@ -481,8 +508,10 @@ stderr() {
 
 # Error trap handlers
 # ERR trap: Provides detailed debugging information when a command fails unexpectedly
+# This helps identify exactly which command failed and with what status code
 trap 'echo "files2xml: Error at line $LINENO: Command \"$BASH_COMMAND\" failed with status $?" >&2' ERR
 # EXIT trap: Ensures clean termination by adding a newline to stderr if needed
+# This prevents the shell prompt from appearing on the same line as error messages
 trap 'echo "" >&2' EXIT
 
 # Execute script if run directly
@@ -752,33 +781,34 @@ EOF
       # Clean up temporary file
       rm -f "$git_files_tmp"
     fi
-    ((VERBOSE)) && { >&2 declare -p gitDirs; }
-
-    # Validate args
+    # Validate that we have files to process
     ((${#aFiles[@]})) || { stderr "No input files specified."; usage 1; }
-    ((VERBOSE)) && { >&2 declare -p aFiles MAX_FILE_SIZE; }
 
     # Remove duplicate files by using canonical paths as unique identifiers
+    # This is essential for several reasons:
+    # 1. Multiple paths might refer to the same file (via symlinks or different relative paths)
+    # 2. Without deduplication, the same file could appear multiple times in the XML output
+    # 3. Processing the same file twice would waste resources and potentially create XML validation issues
     local -A seen=()
     local -a result=()
     local canonical_path
     
     for f in "${aFiles[@]}"; do
-      # Get canonical path (resolves symlinks, normalizes path)
+      # Get canonical path (resolves symlinks, normalizes path to absolute form)
       canonical_path="$(readlink -fn -- "$f")" || { 
         stderr "Failed to resolve path: $f"; 
         continue; 
       }
       
-      # Skip if we've already seen this canonical path
+      # Skip if we've already seen this canonical path (same physical file)
       if [[ -v seen["$canonical_path"] ]]; then
         ((VERBOSE)) && stderr "Skipping duplicate file: $f (already seen as ${seen["$canonical_path"]})"
         continue
       fi
       
-      # First time seeing this canonical path
+      # First time seeing this canonical path - add to result array
       result+=("$canonical_path")
-      seen["$canonical_path"]="$f"  # Store original path for reference
+      seen["$canonical_path"]="$f"  # Store original path for reference in verbose output
       
       ((VERBOSE > 1)) && stderr "Added file: $canonical_path"
     done
@@ -796,4 +826,4 @@ EOF
   main "$@"
 fi
 
-#fin
+# End of files2xml script
