@@ -1,0 +1,56 @@
+#!/bin/bash
+# Bash completion for files2xml script
+
+_files2xml() {
+    local cur prev opts short_opts long_opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    
+    # Short and long options
+    short_opts="-m -g -i -c -n -M -v -q -V -h"
+    long_opts="--max-file-size --gitdir --ignore --compress --no-content --minify --verbose --quiet --version --help"
+    opts="$short_opts $long_opts"
+    
+    # Handle options that require arguments
+    case "$prev" in
+        -m|--max-file-size)
+            # Suggest common size units
+            COMPREPLY=($(compgen -W "1K 10K 100K 1M 10M 100M 1G 2G 5G 10G" -- "$cur"))
+            return 0
+            ;;
+        -g|--gitdir)
+            # Complete directories only
+            COMPREPLY=($(compgen -d -- "$cur"))
+            return 0
+            ;;
+        -i|--ignore)
+            # Suggest common ignore patterns
+            local patterns="*.tmp *.cache *.log *.bak *~ *.swp *.old __pycache__/* .venv/* node_modules/* .git/* build/* dist/* target/*"
+            COMPREPLY=($(compgen -W "$patterns" -- "$cur"))
+            return 0
+            ;;
+    esac
+    
+    # If current word starts with -, complete with options
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+        return 0
+    fi
+    
+    # Otherwise complete with files and directories
+    COMPREPLY=($(compgen -f -- "$cur"))
+    
+    # Add trailing slash to directories
+    local i
+    for ((i=0; i < ${#COMPREPLY[@]}; i++)); do
+        if [[ -d "${COMPREPLY[i]}" ]]; then
+            COMPREPLY[i]="${COMPREPLY[i]}/"
+        fi
+    done
+    
+    return 0
+}
+
+# Register the completion function
+complete -F _files2xml files2xml
